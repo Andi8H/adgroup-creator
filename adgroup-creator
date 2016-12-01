@@ -1,0 +1,227 @@
+// This script creates ad-groups incl. keywords, ads & extensions depending on the data of a given Google spreadsheet
+
+// Base data
+var SS_URL = "https://docs.google.com/spreadsheets/d/1-ryOBNgUhWFcYOniQbGauCl-lGviCYufAHLaHyccw3g/edit";
+var SS_TAB_NAME = "AdGroupCreator";
+
+function main() {
+  
+  var ss_data = readSpreadsheet();
+  
+  // Previous campaign & adgroup are set to the first data_set
+  var previous_campaign_data_set = ss_data[2];
+  var previous_adgroup_data_set = ss_data[2];
+  var previous_campaign = AdWordsApp.campaigns().withCondition("Name = '" + previous_campaign_data_set.campaign.campaign_name + "'").get().next();
+  var previous_adgroup;
+   
+  for(var x in ss_data) {
+   
+    var current_data_set = ss_data[x];
+    
+// CAMPAIGN-LEVEL    
+    
+    if(current_data_set.campaign.campaign_name == "") {
+      
+      // No new campaign reached, campaign name from previous campaign has to be used
+      current_data_set.campaign.campaign_name = previous_campaign_data_set.campaign.campaign_name;
+      
+      Logger.log("Not a new campaign reached. Current campaign: " + current_data_set.campaign.campaign_name);
+    }
+    else {
+      
+      Logger.log("New campaign reached: " + current_data_set.campaign.campaign_name);
+      
+      // New campaign reached.
+      var campaign_iterator = AdWordsApp.campaigns().withCondition("Name = '" + current_data_set.campaign.campaign_name + "'").get();   
+            
+      // Current data set is the new previous campaign
+      previous_campaign_data_set = current_data_set;
+      previous_campaign = AdWordsApp.campaigns().withCondition("Name = '" + previous_campaign_data_set.campaign.campaign_name + "'").get().next();
+    }
+
+// AD-GROUP-LEVEL    
+    
+    if(current_data_set.adgroup.adgroup_name == "") {
+     
+      // No new adgroup reached, adgroup name from previous adgroup has to be used
+      current_data_set.adgroup.adgroup_name = previous_adgroup_data_set.adgroup.adgroup_name;
+      
+      Logger.log("Not a new adgroup reached. Current adgroup: " + current_data_set.adgroup.adgroup_name);
+      previous_adgroup = previous_campaign.adGroups().withCondition("Name = '" + current_data_set.adgroup.adgroup_name + "'").get().next();
+    }
+    else {
+      Logger.log("New adgroup reached: " + current_data_set.adgroup.adgroup_name + ". Will be created!");
+      
+      // New adgroup reached. Create adgroup.
+      var new_adgroup = createAdgroup(current_data_set, previous_campaign);
+      
+      // Current data set is the new previous adgroup
+      previous_adgroup_data_set = current_data_set;
+      previous_adgroup = new_adgroup;
+    } 
+
+// AD-LEVEL
+    // Create an ad only if there is data for it in the spreadsheet
+    if(current_data_set.ad.title_1 == "") {
+   
+      // No ad in the current data_set
+      Logger.log("No ad in the current data set!");
+    }
+    else {
+      createAd(current_data_set, previous_adgroup, previous_adgroup_data_set, previous_campaign_data_set);
+    }
+  
+// KEYWORD-LEVEL
+    // Create a keyword only if there is data for it in the spreadsheet
+    
+    if(current_data_set.keyword.text == "") {
+     
+      // No keyword in the current data_set
+      Logger.log("No keyword in the current data set!");
+    }
+    else {
+      createKeyword(current_data_set, previous_adgroup);   
+    }
+
+// SITELINK-LEVEL
+    // Create a sitelink only if there is data for it in the spreadsheet
+    if(current_data_set.sitelink.text == "") {
+      
+      // No sitelink in the current data_set
+      Logger.log("No sitelink in the current data set!");
+    }
+    else {
+      createSitelink(current_data_set, previous_adgroup);
+    }
+    
+// CALLOUT-LEVEL
+    // Create a callout only if there is data for it in the spreadsheet
+    if(current_data_set.callout.text == "") {
+     
+      // No callout in the current data_set
+      Logger.log("No callout in the current data set!");
+    }
+    else {
+     
+      createCallout(current_data_set, previous_adgroup);
+    }
+  }
+}  
+
+function createAdgroup(data_set, campaign) {
+    
+   var adgroup_builder = campaign.newAdGroupBuilder()
+   .withName(data_set.adgroup.adgroup_name);
+    
+   // Apply Cpc-bid for adgroup only if set in the spreadsheet
+   if(data_set.adgroup.cpc_bid != "") {
+     adgroup_builder.withCpc(data_set.adgroup.cpc_bid); 
+   }
+    
+   var new_adgroup = adgroup_builder.build().getResult();
+   Logger.log("Adgroup " + new_adgroup.getName() + " has been created.");
+  
+  return new_adgroup;
+   
+}
+
+function createAd(data_set, adgroup, adgroup_data_set, campaign_data_set) {
+  
+  Logger.log(adgroup_data_set.adgroup.mobile_url);
+    
+  var ad_builder = adgroup.newAd().expandedTextAdBuilder()
+  .withHeadlinePart1(data_set.ad.title_1)
+  .withHeadlinePart2(data_set.ad.title_2)
+  .withDescription(data_set.ad.description)
+  .withFinalUrl(adgroup_data_set.adgroup.url);
+  
+  if(adgroup_data_set.adgroup.mobile_url != "") {
+    ad_builder.withMobileFinalUrl(adgroup_data_set.adgroup.mobile_url);
+  }
+  if(adgroup_data_set.adgroup.adpath_1 != "") {
+    ad_builder.withPath1(adgroup_data_set.adgroup.adpath_1);
+  }
+  if(adgroup_data_set.adgroup.adpath_2 != "") {
+    ad_builder.withPath2(adgroup_data_set.adgroup.adpath_2);
+  }
+  if(campaign_data_set.tracking_template != "") {
+    ad_builder.withTrackingTemplate(campaign_data_set.campaign.tracking_template);
+  }
+  
+  var new_ad = ad_builder.build().getResult();
+  Logger.log("New Ad: " + new_ad.getHeadlinePart1() + "... has been created.");
+}
+
+function createKeyword(data_set, adgroup) {
+  
+  var keyword_builder = adgroup.newKeywordBuilder()
+  .withText(data_set.keyword.text);
+  
+  if(data_set.keyword.cpc_bid != "") {
+    keyword_builder.withCpc(data_set.keyword.cpc_bid);
+  }
+  if(data_set.keyword.url != "") {
+    keyword_builder.withFinalUrl(data_set.keyword.url);
+  }
+  if(data_set.keyword.mobile_url != "") {
+    keyword_builder.withMobileFinalUrl(data_set.keyword.mobile_url);
+  }
+  
+  var new_keyword = keyword_builder.build().getResult();
+  Logger.log("New Keyword: " + new_keyword.getText() + " has been created.");
+  
+  if(data_set.keyword.label != "") {
+    new_keyword.applyLabel(data_set.keyword.label);
+  }
+}
+
+function createSitelink(data_set, adgroup) {
+  
+  var sitelink_builder = AdWordsApp.extensions().newSitelinkBuilder()
+  .withLinkText(data_set.sitelink.text)
+  .withFinalUrl(data_set.sitelink.url);
+  
+  if(data_set.sitelink.mobile_url != "") {
+    sitelink_builder.withMobileFinalUrl(data_set.sitelink.mobile_url);
+  }
+  
+  var new_sitelink = sitelink_builder.build().getResult();
+  adgroup.addSitelink(new_sitelink);
+  Logger.log("New Sitelink: " + new_sitelink.getLinkText() + " has been created.");
+}
+
+function createCallout(data_set, adgroup) {
+ 
+  var new_callout = AdWordsApp.extensions().newCalloutBuilder()
+  .withText(data_set.callout.text)
+  .build()
+  .getResult();
+  
+  adgroup.addCallout(new_callout);
+  Logger.log("New Callout: " + new_callout.getText() + " has been created.");
+}
+
+function readSpreadsheet() {
+ 
+  var ss_data = {};
+  
+  var spreadsheet = SpreadsheetApp.openByUrl(SS_URL);
+  var sheet = spreadsheet.getSheetByName(SS_TAB_NAME);
+  var values = sheet.getDataRange().getValues();
+  
+  for(var i = 2; i < values.length; i++) {
+   
+    var data_set = {
+      campaign: {campaign_name: values[i][0], tracking_template: values[i][1]},
+      adgroup: {adgroup_name: values[i][2], cpc_bid: values[i][3], adpath_1: values[i][4], adpath_2: values[i][5], url: values[i][6], mobile_url: values[i][7]},
+      keyword: {text: values[i][8], cpc_bid: values[i][9], url: values[i][10], mobile_url: values[i][11], label: values[i][12]},
+      ad: {title_1: values[i][13], title_2: values[i][14], description: values[i][15]},
+      sitelink: {text: values[i][16], url: values[i][17], mobile_url: values[i][18]},
+      callout: {text: values[i][19]}
+    };  
+    
+    ss_data[i] = data_set;
+  }
+  
+  return ss_data;   
+}
